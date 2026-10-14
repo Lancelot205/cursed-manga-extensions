@@ -101,7 +101,7 @@ abstract class Hentai2Read : KeiSource() {
             throw Exception("Manga page not found. Migrate or re-add this entry.")
         }
         return SMangaUpdate(
-            manga = parseMangaDetails(document),
+            manga = parseMangaDetails(document).apply { url = manga.url },
             chapters = parseChapters(document),
         )
     }
