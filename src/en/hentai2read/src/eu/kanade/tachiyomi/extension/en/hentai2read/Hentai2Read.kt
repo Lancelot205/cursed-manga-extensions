@@ -96,7 +96,10 @@ abstract class Hentai2Read : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        val document = client.get(resolveUrl(manga.url)).asJsoup()
+        if (document.selectFirst(TITLE_SELECTOR) == null) {
+            throw Exception("Manga page not found. Migrate or re-add this entry.")
+        }
         return SMangaUpdate(
             manga = parseMangaDetails(document),
             chapters = parseChapters(document),
@@ -161,7 +164,7 @@ abstract class Hentai2Read : KeiSource() {
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val document = client.get("$baseUrl${chapter.url}").asJsoup()
+        val document = client.get(resolveUrl(chapter.url)).asJsoup()
         return document.parsePageData<ReaderDto>().toPages()
     }
 
@@ -169,7 +172,7 @@ abstract class Hentai2Read : KeiSource() {
 
     private suspend fun fetchTags(type: String): List<TagDto> {
         val first = client.get("$baseUrl/tags/$type").asJsoup().parsePageData<TagPageDto>()
-        val rest = (2..first.lastPage).flatMap { page ->
+        val rest = (2..minOf(first.lastPage, MAX_TAG_PAGES)).flatMap { page ->
             client.get("$baseUrl/tags/$type/page-$page").asJsoup().parsePageData<TagPageDto>().tags
         }
         return first.tags + rest
@@ -187,7 +190,17 @@ abstract class Hentai2Read : KeiSource() {
         return script.parseAs<T>()
     }
 
+    private fun resolveUrl(path: String): HttpUrl {
+        val base = baseUrl.toHttpUrl()
+        val url = base.resolve(path)
+        if (url == null || url.scheme != base.scheme || url.host != base.host) {
+            throw Exception("Invalid URL: $path")
+        }
+        return url
+    }
+
     companion object {
+        private const val MAX_TAG_PAGES = 20
         private const val PREFIX_ID_SEARCH = "id:"
 
         // Listing cards: <article data-card="true" data-book="ID">. Sponsored tiles use <article data-promo>.

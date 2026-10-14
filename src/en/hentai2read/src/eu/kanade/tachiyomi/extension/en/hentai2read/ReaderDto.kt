@@ -13,7 +13,7 @@ class ReaderDto(private val props: Props) {
     )
 
     // `images` holds the webp pages; `avif` repeats the same pages, so only one list is used.
-    fun toPages(): List<Page> = props.images.orEmpty().ifEmpty { props.avif.orEmpty() }.filterNotNull().mapIndexed { index, url ->
+    fun toPages(): List<Page> = props.images.orEmpty().filterNotNull().ifEmpty { props.avif.orEmpty().filterNotNull() }.mapIndexed { index, url ->
         Page(index, imageUrl = url)
     }
 }
