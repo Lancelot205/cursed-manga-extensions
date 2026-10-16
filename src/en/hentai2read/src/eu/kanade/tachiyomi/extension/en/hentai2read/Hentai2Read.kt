@@ -141,9 +141,9 @@ abstract class Hentai2Read : KeiSource() {
         // Single-chapter pages are fresh and exact; multi-chapter books rely on the listing count.
         // The description lookup covers entries stored before the count moved to memo.
         val pages = document.singleChapterPages()
+            ?: document.numberOfPages()?.toString()
             ?: manga.memo[MEMO_PAGE_COUNT]?.intOrNull?.toString()
             ?: manga.description?.let { PAGES_DESC_REGEX.find(it)?.groupValues?.get(1) }?.let(::parsePageCount)?.toString()
-            ?: document.numberOfPages()?.toString()
             ?: fetchPagesFromSearch(manga.url, title)
 
         val parsedChapters = parseChapters(document)
