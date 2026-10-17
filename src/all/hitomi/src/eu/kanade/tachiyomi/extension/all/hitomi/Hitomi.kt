@@ -95,21 +95,32 @@ abstract class Hitomi : KeiSource() {
         return MangasPage(entries, entries.size >= 24)
     }
 
-    private lateinit var searchResponse: List<Int>
+    private class SearchResults(val key: String, val ids: List<Int>)
+
+    @Volatile
+    private var lastSearch: SearchResults? = null
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        if (page == 1) {
-            searchResponse = hitomiSearch(
-                query,
-                filters,
-                nozomiLang,
-            )
-        }
+        val key = "${query.trim()}|${filters.cacheKey()}"
+        val ids = lastSearch?.takeIf { page > 1 && it.key == key }?.ids
+            ?: hitomiSearch(query, filters, nozomiLang).also { lastSearch = SearchResults(key, it) }
 
-        val end = min(page * 25, searchResponse.size)
-        val entries = searchResponse.subList((page - 1) * 25, end)
+        val end = min(page * 25, ids.size)
+        val entries = ids.subList((page - 1) * 25, end)
             .toMangaList()
-        return MangasPage(entries, end < searchResponse.size)
+        return MangasPage(entries, end < ids.size)
+    }
+
+    private fun FilterList.cacheKey() = buildString {
+        for (filter in this@cacheKey) {
+            when (filter) {
+                is SelectFilter -> append(filter.state)
+                is TypeFilter -> filter.state.forEach { append(if (it.state) '1' else '0') }
+                is TextFilter -> append(filter.state)
+                else -> {}
+            }
+            append('|')
+        }
     }
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters()
@@ -534,10 +545,13 @@ abstract class Hitomi : KeiSource() {
             name = "Chapter"
             url = gallery.galleryurl
             scanlator = gallery.type
-            date_upload = dateFormat.tryParseDateTime(gallery.date.substringBeforeLast("-"))
+            date_upload = dateFormat.tryParseDateTime(gallery.date.replace(TIMEZONE_SUFFIX_REGEX, ""))
         }
 
-        return SMangaUpdate(gallery.toSManga(), listOf(chapter))
+        return SMangaUpdate(
+            manga = if (fetchDetails) gallery.toSManga() else manga,
+            chapters = if (fetchChapters) listOf(chapter) else chapters,
+        )
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
@@ -670,6 +684,7 @@ abstract class Hitomi : KeiSource() {
 private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
 
 private val WHITESPACE_REGEX = Regex("\\s+")
+private val TIMEZONE_SUFFIX_REGEX = Regex("""(?<=:\d{2})[+-]\d{2}(?::?\d{2})?$""")
 private val SUBDOMAIN_DEFAULT_REGEX = Regex("var o = (\\d)")
 private val SUBDOMAIN_BREAK_REGEX = Regex("o = (\\d); break;")
 private val SUBDOMAIN_CASE_REGEX = Regex("case (\\d+):")
