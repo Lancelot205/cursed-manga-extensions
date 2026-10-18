@@ -129,8 +129,7 @@ abstract class NHentai :
             else -> null
         }
         if (galleryId != null) {
-            val manga = getGallery(galleryId).toSManga(getConfig().thumbServers.random(), displayFullTitle)
-            return MangasPage(listOf(manga), false)
+            return MangasPage(listOf(getGalleryManga(galleryId)), false)
         }
 
         val filterList = if (filters.isEmpty()) getFilterList(null) else filters
@@ -160,7 +159,7 @@ abstract class NHentai :
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrlHost || url.pathSegments.firstOrNull() != "g") return null
         val id = url.pathSegments.getOrNull(1)?.takeIf { it.isNotEmpty() } ?: return null
-        return getGallery(id).toSManga(getConfig().thumbServers.random(), displayFullTitle)
+        return getGalleryManga(id)
     }
 
     override suspend fun fetchMangaUpdate(
@@ -264,18 +263,23 @@ abstract class NHentai :
 
     private suspend fun getConfig(): NHConfig {
         nhConfig?.let { return it }
-        val config = try {
-            client.get("$apiUrl/config").parseAs<NHConfig>()
+        return try {
+            client.get("$apiUrl/config").parseAs<NHConfig>().also { nhConfig = it }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            NHConfig(
+            // Not cached, so a failed lookup can never replace a config stored by a concurrent call
+            nhConfig ?: NHConfig(
                 (1..4).map { n -> "https://i$n.nhentai.net" },
                 (1..4).map { n -> "https://t$n.nhentai.net" },
             )
         }
-        return config.also { nhConfig = it }
     }
+
+    // Lookups bypass getMangaUpdate, so mark the result resolved to avoid a second gallery fetch
+    private suspend fun getGalleryManga(id: String): SManga = getGallery(id)
+        .toSManga(getConfig().thumbServers.random(), displayFullTitle)
+        .apply { initialized = true }
 
     private suspend fun getGallery(id: String): Hentai = client.get("$apiUrl/galleries/$id").parseAs()
 
