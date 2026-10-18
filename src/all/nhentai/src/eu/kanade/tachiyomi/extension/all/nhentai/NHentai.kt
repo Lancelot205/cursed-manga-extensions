@@ -264,7 +264,10 @@ abstract class NHentai :
     private suspend fun getConfig(): NHConfig {
         nhConfig?.let { return it }
         return try {
-            client.get("$apiUrl/config").parseAs<NHConfig>().also { nhConfig = it }
+            client.get("$apiUrl/config").parseAs<NHConfig>().also {
+                require(it.imageServers.isNotEmpty() && it.thumbServers.isNotEmpty())
+                nhConfig = it
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
