@@ -26,7 +26,11 @@ import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.tryParseDateTime
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -322,10 +326,25 @@ abstract class EHentai :
         var next: String? = "$baseUrl${chapter.url}"
         while (next != null) {
             val doc = client.get(next).asJsoup()
-            pageUrls += doc.select("#gdt a").map { it.attr("abs:href") }
+            val hrefs = doc.select("#gdt a").map { it.attr("abs:href") }
+            // Newer layout links every thumbnail to the multi-page viewer
+            hrefs.firstOrNull { "/mpv/" in it }?.let { return getMpvPages(it) }
+            pageUrls += hrefs
             next = nextPageUrl(doc)
         }
         return pageUrls.mapIndexed { index, url -> Page(index, url = url) }
+    }
+
+    private suspend fun getMpvPages(mpvHref: String): List<Page> {
+        val html = client.get(mpvHref.substringBefore('#')).body.string()
+        val gid = GID_REGEX.find(html)?.groupValues?.get(1)
+            ?: throw Exception("Could not find gallery id on MPV page")
+        val json = IMAGE_LIST_REGEX.find(html)?.groupValues?.get(1)
+            ?: throw Exception("Could not find image list on MPV page")
+        return Json.parseToJsonElement(json).jsonArray.mapIndexed { index, el ->
+            val key = el.jsonObject["k"]!!.jsonPrimitive.content
+            Page(index, url = "$baseUrl/s/$key/$gid-${index + 1}")
+        }
     }
 
     private fun nextPageUrl(element: Element) = element.select("a[onclick=return false]").last()?.let {
@@ -337,10 +356,8 @@ abstract class EHentai :
     private fun imageUrlParse(response: Response, isGetBakImageUrl: Boolean): String {
         val doc = response.asJsoup()
         val imgUrl = doc.select("#img").attr("abs:src")
-        // from https://github.com/Miuzarte/EHentai-go/blob/dd9a24adb13300c028c35f53b9eff31b51966def/query.go#L695
         val nlValue = NL_REGEX.find(doc.selectFirst("#loadfail")?.attr("onclick").orEmpty())?.groupValues?.get(1)
 
-        // from https://github.com/ccloli/E-Hentai-Downloader/blob/c51e1118def7541b5fbb224f7e512e170f4b9d5e/src/main.js#L2444
         if (getOriginalImagePref()) {
             val originalUrl = doc.selectFirst("a[href*=/fullimg/]")?.attr("abs:href")
             if (!originalUrl.isNullOrEmpty()) {
@@ -352,10 +369,12 @@ abstract class EHentai :
             }
         }
 
-        if (!isGetBakImageUrl) {
-            return imgUrl
+        if (imgUrl.isEmpty()) {
+            val reason = doc.body().text().take(200).ifBlank { "empty response" }
+            throw Exception("Could not find image on page: $reason")
         }
 
+        if (!isGetBakImageUrl) return imgUrl
         if (nlValue.isNullOrEmpty()) return imgUrl
         val bakUrl = response.request.url.newBuilder()
             .addQueryParameter("nl", nlValue)
@@ -441,7 +460,8 @@ abstract class EHentai :
         }
         response?.close()
         val bakRequest = Request.Builder().url(bakHttpUrl).headers(headers).build()
-        val newImageUrl = imageUrlParse(chain.proceed(bakRequest), false)
+        val newImageUrl = runCatching { imageUrlParse(chain.proceed(bakRequest), false) }
+            .getOrElse { return result.getOrThrow() }
         return chain.proceed(request.newBuilder().url(newImageUrl).build())
     }
 
@@ -582,6 +602,8 @@ abstract class EHentai :
         private const val MAX_CURSORS = 100
 
         private val NL_REGEX = Regex("nl\\('(.+?)'\\)")
+        private val GID_REGEX = Regex("""var\s+gid\s*=\s*(\d+)""")
+        private val IMAGE_LIST_REGEX = Regex("""var\s+imagelist\s*=\s*(\[.*?\]);""", RegexOption.DOT_MATCHES_ALL)
 
         private const val IMAGE_HEADER_SIZE = 12L
         private val IMAGE_SIGNATURES = listOf(
