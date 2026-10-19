@@ -94,9 +94,9 @@ abstract class Hentai2Read : KeiSource() {
         val response = client.get("$baseUrl$path")
         val document = response.asJsoup()
         if (document.selectFirst(TITLE_SELECTOR) == null) return null
-        
+
         // This captures the final URL after the website redirects it
-        val finalUrl = response.request.url.encodedPath 
+        val finalUrl = response.request.url.encodedPath
         return parseMangaDetails(document, document.singleChapterPages()).apply { url = finalUrl }
     }
 
@@ -140,9 +140,9 @@ abstract class Hentai2Read : KeiSource() {
     ): SMangaUpdate {
         val response = client.get(resolveUrl(manga.url))
         val document = response.asJsoup()
-        
+
         // This is the magic line that catches the new URL format
-        val redirectedUrl = response.request.url.encodedPath 
+        val redirectedUrl = response.request.url.encodedPath
 
         val title = document.selectFirst(TITLE_SELECTOR)?.text()
             ?: throw Exception("Manga page not found. Migrate or re-add this entry.")
@@ -160,7 +160,7 @@ abstract class Hentai2Read : KeiSource() {
         return SMangaUpdate(
             manga = parseMangaDetails(document, pages).apply {
                 // This permanently updates the URL in your Komikku database
-                url = redirectedUrl 
+                url = redirectedUrl
                 memo = manga.memo
                 if (status == SManga.COMPLETED && parsedChapters.size == 1) {
                     update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
