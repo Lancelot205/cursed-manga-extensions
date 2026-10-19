@@ -91,9 +91,13 @@ abstract class Hentai2Read : KeiSource() {
 
     // Returns null when the page isn't a manga page (chapter, tag or search URL, unknown id).
     private suspend fun fetchMangaByPath(path: String): SManga? {
-        val document = client.get("$baseUrl$path").asJsoup()
+        val response = client.get("$baseUrl$path")
+        val document = response.asJsoup()
         if (document.selectFirst(TITLE_SELECTOR) == null) return null
-        return parseMangaDetails(document, document.singleChapterPages()).apply { url = path }
+        
+        // This captures the final URL after the website redirects it
+        val finalUrl = response.request.url.encodedPath 
+        return parseMangaDetails(document, document.singleChapterPages()).apply { url = finalUrl }
     }
 
     private fun Document.toMangasPage(): MangasPage {
@@ -134,7 +138,12 @@ abstract class Hentai2Read : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = client.get(resolveUrl(manga.url)).asJsoup()
+        val response = client.get(resolveUrl(manga.url))
+        val document = response.asJsoup()
+        
+        // This is the magic line that catches the new URL format
+        val redirectedUrl = response.request.url.encodedPath 
+
         val title = document.selectFirst(TITLE_SELECTOR)?.text()
             ?: throw Exception("Manga page not found. Migrate or re-add this entry.")
 
@@ -144,13 +153,14 @@ abstract class Hentai2Read : KeiSource() {
             ?: document.numberOfPages()?.toString()
             ?: manga.memo[MEMO_PAGE_COUNT]?.intOrNull?.toString()
             ?: manga.description?.let { PAGES_DESC_REGEX.find(it)?.groupValues?.get(1) }?.let(::parsePageCount)?.toString()
-            ?: fetchPagesFromSearch(manga.url, title)
+            ?: fetchPagesFromSearch(redirectedUrl, title)
 
         val parsedChapters = parseChapters(document)
 
         return SMangaUpdate(
             manga = parseMangaDetails(document, pages).apply {
-                url = manga.url
+                // This permanently updates the URL in your Komikku database
+                url = redirectedUrl 
                 memo = manga.memo
                 if (status == SManga.COMPLETED && parsedChapters.size == 1) {
                     update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
