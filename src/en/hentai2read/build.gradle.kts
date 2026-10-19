@@ -11,6 +11,7 @@ keiyoushi {
     libVersion = "1.6"
 
     source {
+        id = 8314925449740051000L
         lang = "en"
         baseUrl = "https://hentai2read.com"
     }
