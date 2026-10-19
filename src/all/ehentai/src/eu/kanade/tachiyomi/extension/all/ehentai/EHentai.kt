@@ -202,9 +202,11 @@ abstract class EHentai :
             }
         }
 
-        mangaElements.lastOrNull()?.selectFirst("a")?.let {
-            val lastId = ExGalleryMetadata.galleryId(it.attr("href"))
-            synchronized(nextCursors) { nextCursors[cursorKey(listingUrl, page + 1)] = lastId }
+        val nextId = doc.selectFirst("a#unext[href]")?.absUrl("href")?.toHttpUrlOrNull()?.queryParameter("next")
+            ?: doc.select("table.itg td.glname").lastOrNull()?.selectFirst("a")
+                ?.let { ExGalleryMetadata.galleryId(it.attr("href")) }
+        nextId?.let { id ->
+            synchronized(nextCursors) { nextCursors[cursorKey(listingUrl, page + 1)] = id }
         }
 
         val hasNextPage = doc.select("a#unext[href]").hasText()
