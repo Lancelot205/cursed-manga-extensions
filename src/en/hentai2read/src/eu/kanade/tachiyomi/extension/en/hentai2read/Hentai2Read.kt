@@ -39,6 +39,8 @@ import kotlin.time.Duration.Companion.seconds
 @Source
 abstract class Hentai2Read : KeiSource() {
 
+    override val id: Long = 8314925449740051000L
+
     override val supportsFilterFetching = true
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(permits = 2, period = 1.seconds)
