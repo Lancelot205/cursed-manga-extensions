@@ -462,8 +462,12 @@ abstract class EHentai :
         }
         response?.close()
         val bakRequest = Request.Builder().url(bakHttpUrl).headers(headers).build()
-        val newImageUrl = runCatching { imageUrlParse(chain.proceed(bakRequest), false) }
-            .getOrElse { return result.getOrThrow() }
+        val newImageUrl = try {
+            imageUrlParse(chain.proceed(bakRequest), false)
+        } catch (e: Exception) {
+            result.exceptionOrNull()?.let { throw it }
+            throw java.io.IOException("Image fallback failed (HTTP ${response?.code})", e)
+        }
         return chain.proceed(request.newBuilder().url(newImageUrl).build())
     }
 
