@@ -29,7 +29,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.io.IOException
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -93,7 +92,9 @@ abstract class Hentai2Read : KeiSource() {
     private suspend fun fetchMangaByPath(path: String): SManga? {
         val document = client.get("$baseUrl$path").asJsoup()
         if (document.selectFirst(TITLE_SELECTOR) == null) return null
-        return parseMangaDetails(document, document.singleChapterPages()).apply { url = path }
+        return parseMangaDetails(document, document.singleChapterPages()).apply {
+            setUrlWithoutDomain(document.selectFirst("link[rel=canonical]")!!.absUrl("href"))
+        }
     }
 
     private fun Document.toMangasPage(): MangasPage {
@@ -138,13 +139,13 @@ abstract class Hentai2Read : KeiSource() {
         val title = document.selectFirst(TITLE_SELECTOR)?.text()
             ?: throw Exception("Manga page not found. Migrate or re-add this entry.")
 
-        // Single-chapter pages are fresh and exact; multi-chapter books rely on the listing count.
-        // The description lookup covers entries stored before the count moved to memo.
+        // Only single-chapter pages carry a count; multi-chapter books fall back to the listing count,
+        // then to the count an earlier refresh saved in the description.
         val pages = document.singleChapterPages()
             ?: document.numberOfPages()?.toString()
             ?: manga.memo[MEMO_PAGE_COUNT]?.intOrNull?.toString()
             ?: manga.description?.let { PAGES_DESC_REGEX.find(it)?.groupValues?.get(1) }?.let(::parsePageCount)?.toString()
-            ?: fetchPagesFromSearch(manga.url, title)
+            ?: if (fetchDetails) fetchPagesFromSearch(manga.url, title) else null
 
         val parsedChapters = parseChapters(document)
 
@@ -196,7 +197,7 @@ abstract class Hentai2Read : KeiSource() {
             val url = "$baseUrl/search".toHttpUrl().newBuilder().addQueryParameter("q", title).build()
             client.get(url).asJsoup().parsePageDataOrNull<ListingDto>()?.props?.books?.data.orEmpty()
                 .firstOrNull { it.id == id }?.pageCount?.toString()
-        } catch (_: IOException) {
+        } catch (_: Exception) {
             null // a failed lookup shouldn't break the details refresh
         }
     }

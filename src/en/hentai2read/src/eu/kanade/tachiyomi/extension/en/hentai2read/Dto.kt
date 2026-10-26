@@ -66,15 +66,7 @@ class ReaderDto(private val props: Props) {
         val avif: List<String?>? = null,
     )
 
-    // `images` holds the webp pages; `avif` repeats the same pages, so only one list is used.
+    // `avif` repeats the same pages (or is all null), so only one list is used.
     fun toPages(): List<Page> = props.images.orEmpty().filterNotNull().ifEmpty { props.avif.orEmpty().filterNotNull() }
-        .mapNotNull(::toHttpsUrl)
-        .mapIndexed { index, url -> Page(index, imageUrl = url) }
-
-    // Protocol-relative URLs are upgraded to HTTPS; anything else that isn't HTTPS is dropped.
-    private fun toHttpsUrl(url: String): String? = when {
-        url.startsWith("https://") -> url
-        url.startsWith("//") -> "https:$url"
-        else -> null
-    }
+        .mapIndexed { index, url -> Page(index, imageUrl = if (url.startsWith("//")) "https:$url" else url) }
 }
