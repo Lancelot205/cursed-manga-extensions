@@ -52,35 +52,53 @@ abstract class Hentai2Read :
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(permits = 2, period = 1.seconds)
 
-    // Unlike the other listings, rankings page with ?page=N.
-    override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = "$baseUrl/ranking".toHttpUrl().newBuilder().apply {
-            preferences.getString(PREF_POPULAR_PERIOD, "")?.takeIf { it.isNotEmpty() }?.let { addQueryParameter("period", it) }
-            if (page > 1) addQueryParameter("page", page.toString())
-        }.build()
-        return client.get(url).asJsoup().toMangasPage()
-    }
+    override suspend fun getPopularManga(page: Int): MangasPage = client.get(rankingUrl(preferences.getString(PREF_POPULAR_PERIOD, "").orEmpty(), page)).asJsoup().toMangasPage()
 
     override suspend fun getLatestUpdates(page: Int): MangasPage = client.get(listingUrl("/browse", page)).asJsoup().toMangasPage()
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         val tags = filters.filterIsInstance<TagGroup>().flatMap { it.state }
-        val artists = filters.filterIsInstance<ArtistGroup>().flatMap { it.state }.filter { it.state }.map { it.id }
-        val included = tags.filter { it.isIncluded() }.map { it.id } + artists
+        val artists = filters.filterIsInstance<ArtistGroup>().flatMap { it.state }.filter { it.state }
+        val includedTags = tags.filter { it.isIncluded() }
+        val included = includedTags.map { it.id } + artists.map { it.id }
         val excluded = tags.filter { it.isExcluded() }.map { it.id }
+        val selectedPages = includedTags.map { it.url } + artists.map { it.url }
+        val ranking = filters.firstInstance<RankingFilter>().period
 
-        val url = "$baseUrl/search".toHttpUrl().newBuilder().apply {
-            if (query.isNotBlank()) addQueryParameter("q", query)
-            filters.firstInstance<TypeFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("type", it) }
-            filters.firstInstance<StatusFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("status", it) }
-            filters.firstInstance<SortFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("sort", it) }
-            if (filters.firstInstance<MatchAnyFilter>().state) addQueryParameter("match", "any")
-            if (included.isNotEmpty()) addQueryParameter("with", included.joinToString(","))
-            if (excluded.isNotEmpty()) addQueryParameter("without", excluded.joinToString(","))
-            if (page > 1) addQueryParameter("page", page.toString())
-        }.build()
+        // Search text always searches. Without it, a ranking or a single included tag/artist opens that page.
+        val url = when {
+            query.isBlank() && ranking != null -> rankingUrl(ranking, page)
+            query.isBlank() && excluded.isEmpty() && selectedPages.size == 1 -> tagPageUrl(selectedPages.single(), filters, page)
+            else -> "$baseUrl/search".toHttpUrl().newBuilder().apply {
+                if (query.isNotBlank()) addQueryParameter("q", query)
+                filters.firstInstance<TypeFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("type", it) }
+                filters.firstInstance<StatusFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("status", it) }
+                filters.firstInstance<SortFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("sort", it) }
+                if (filters.firstInstance<MatchAnyFilter>().state) addQueryParameter("match", "any")
+                if (included.isNotEmpty()) addQueryParameter("with", included.joinToString(","))
+                if (excluded.isNotEmpty()) addQueryParameter("without", excluded.joinToString(","))
+                if (page > 1) addQueryParameter("page", page.toString())
+            }.build().toString()
+        }
 
         return client.get(url).asJsoup().toMangasPage()
+    }
+
+    // Unlike the other listings, rankings page with ?page=N.
+    private fun rankingUrl(period: String, page: Int): String = "$baseUrl/ranking".toHttpUrl().newBuilder().apply {
+        if (period.isNotEmpty()) addQueryParameter("period", period)
+        if (page > 1) addQueryParameter("page", page.toString())
+    }.build().toString()
+
+    // A tag page takes Type, Status and Sort as path segments, e.g. /category/18-adult/doujinshi/completed/newest.
+    private fun tagPageUrl(path: String, filters: FilterList, page: Int): String {
+        val segments = listOf(
+            filters.firstInstance<TypeFilter>().value,
+            filters.firstInstance<StatusFilter>().value,
+            // "Recently updated" is a tag page's default order, so it has no segment.
+            filters.firstInstance<SortFilter>().value.takeUnless { it == "latest" }.orEmpty(),
+        ).filter { it.isNotEmpty() }
+        return listingUrl((listOf(path) + segments).joinToString("/"), page)
     }
 
     // Returns null when the page isn't a manga page (chapter or unknown URL).
@@ -285,8 +303,8 @@ abstract class Hentai2Read :
         ListPreference(screen.context).apply {
             key = PREF_POPULAR_PERIOD
             title = "Popular period"
-            entries = POPULAR_PERIODS.map { it.first }.toTypedArray()
-            entryValues = POPULAR_PERIODS.map { it.second }.toTypedArray()
+            entries = RANKING_PERIODS.map { it.first }.toTypedArray()
+            entryValues = RANKING_PERIODS.map { it.second }.toTypedArray()
             summary = "%s"
             setDefaultValue("")
         }.also(screen::addPreference)
@@ -306,14 +324,6 @@ abstract class Hentai2Read :
         private const val MEMO_PAGE_COUNT = "pageCount"
 
         private const val PREF_POPULAR_PERIOD = "popular_period"
-
-        // The ranking's period tabs; Yesterday is the plain /ranking.
-        private val POPULAR_PERIODS = listOf(
-            "Yesterday" to "",
-            "Last week" to "week",
-            "Last month" to "month",
-            "All time" to "all",
-        )
 
         private const val TITLE_SELECTOR = "h1#book-title"
 

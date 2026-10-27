@@ -48,9 +48,10 @@ class TagDto(
     private val id: Int,
     val name: String,
     val type: String,
+    private val url: String,
 ) {
-    internal fun toFilter() = TagFilter(id, name)
-    internal fun toArtistFilter() = ArtistFilter(id, name)
+    internal fun toFilter() = TagFilter(id, name, url)
+    internal fun toArtistFilter() = ArtistFilter(id, name, url)
 }
 
 @Serializable
