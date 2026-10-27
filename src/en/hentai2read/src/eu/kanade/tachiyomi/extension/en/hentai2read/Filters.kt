@@ -53,7 +53,15 @@ internal class TagFilter(val id: Int, name: String) : Filter.TriState(name)
 
 internal class TagGroup(name: String, tags: List<TagFilter>) : Filter.Group<TagFilter>(name, tags)
 
-// Artist, parody and character lists run to thousands of entries, so only these are offered.
+// Checked artists are sent with the included tags.
+internal class ArtistFilter(val id: Int, name: String) : Filter.CheckBox(name)
+
+internal class ArtistGroup(artists: List<ArtistFilter>) : Filter.Group<ArtistFilter>("Top artists", artists)
+
+// Unchecked, a book must have every included tag.
+internal class MatchAnyFilter : Filter.CheckBox("Match any included tag")
+
+// Artist, parody and character lists run to thousands of entries, so only these are offered in full.
 internal val TAG_TYPES = listOf("category", "content")
 
 internal fun hentai2readFilters(tags: List<TagDto>): FilterList {
@@ -63,11 +71,16 @@ internal fun hentai2readFilters(tags: List<TagDto>): FilterList {
         add(TypeFilter())
         add(StatusFilter())
         add(SortFilter())
+        add(MatchAnyFilter())
 
         TAG_TYPES.forEach { type ->
             val group = tags.filter { it.type == type }.map { it.toFilter() }.sortedBy { it.name.lowercase() }
             if (group.isNotEmpty()) add(TagGroup(type.replaceFirstChar { it.uppercase() }, group))
         }
+
+        // Kept in the site's order, most series first.
+        val artists = tags.filter { it.type == "artist" }.map { it.toArtistFilter() }
+        if (artists.isNotEmpty()) add(ArtistGroup(artists))
     }
     return FilterList(filters)
 }

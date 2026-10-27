@@ -54,7 +54,8 @@ abstract class Hentai2Read : KeiSource() {
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         val tags = filters.filterIsInstance<TagGroup>().flatMap { it.state }
-        val included = tags.filter { it.isIncluded() }.map { it.id }
+        val artists = filters.filterIsInstance<ArtistGroup>().flatMap { it.state }.filter { it.state }.map { it.id }
+        val included = tags.filter { it.isIncluded() }.map { it.id } + artists
         val excluded = tags.filter { it.isExcluded() }.map { it.id }
 
         val url = "$baseUrl/search".toHttpUrl().newBuilder().apply {
@@ -62,6 +63,7 @@ abstract class Hentai2Read : KeiSource() {
             filters.firstInstance<TypeFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("type", it) }
             filters.firstInstance<StatusFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("status", it) }
             filters.firstInstance<SortFilter>().value.takeIf { it.isNotEmpty() }?.let { addQueryParameter("sort", it) }
+            if (filters.firstInstance<MatchAnyFilter>().state) addQueryParameter("match", "any")
             if (included.isNotEmpty()) addQueryParameter("with", included.joinToString(","))
             if (excluded.isNotEmpty()) addQueryParameter("without", excluded.joinToString(","))
             if (page > 1) addQueryParameter("page", page.toString())
@@ -245,8 +247,13 @@ abstract class Hentai2Read : KeiSource() {
     }
 
     override suspend fun fetchFilterData(): JsonElement = coroutineScope {
-        TAG_TYPES.map { type -> async { fetchTags(type) } }.awaitAll().flatten()
+        (TAG_TYPES.map { type -> async { fetchTags(type) } } + async { fetchTopArtists() }).awaitAll().flatten()
     }.toJsonElement()
+
+    // Only the first page (the artists with the most series), like the site's own artist picker.
+    private suspend fun fetchTopArtists(): List<TagDto> = client.get("$baseUrl/tags/artist").asJsoup()
+        .parsePageData<TagPageDto>().tags
+        .filter { it.name != "Unknown" }
 
     private suspend fun fetchTags(type: String): List<TagDto> {
         val first = client.get("$baseUrl/tags/$type").asJsoup().parsePageData<TagPageDto>()

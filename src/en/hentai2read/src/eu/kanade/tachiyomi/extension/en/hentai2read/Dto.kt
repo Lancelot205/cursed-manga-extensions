@@ -46,10 +46,11 @@ class TagPageDto(private val props: Props) {
 @Serializable
 class TagDto(
     private val id: Int,
-    private val name: String,
+    val name: String,
     val type: String,
 ) {
     internal fun toFilter() = TagFilter(id, name)
+    internal fun toArtistFilter() = ArtistFilter(id, name)
 }
 
 @Serializable
