@@ -1,5 +1,8 @@
 package eu.kanade.tachiyomi.extension.en.hentai2read
 
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -13,6 +16,7 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstance
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.intOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.selectLast
@@ -38,15 +42,22 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.seconds
 
 @Source
-abstract class Hentai2Read : KeiSource() {
+abstract class Hentai2Read :
+    KeiSource(),
+    ConfigurableSource {
 
     override val supportsFilterFetching = true
+
+    private val preferences by getPreferencesLazy()
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(permits = 2, period = 1.seconds)
 
     // Unlike the other listings, rankings page with ?page=N.
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = if (page > 1) "$baseUrl/ranking?page=$page" else "$baseUrl/ranking"
+        val url = "$baseUrl/ranking".toHttpUrl().newBuilder().apply {
+            preferences.getString(PREF_POPULAR_PERIOD, "")?.takeIf { it.isNotEmpty() }?.let { addQueryParameter("period", it) }
+            if (page > 1) addQueryParameter("page", page.toString())
+        }.build()
         return client.get(url).asJsoup().toMangasPage()
     }
 
@@ -270,6 +281,17 @@ abstract class Hentai2Read : KeiSource() {
         return hentai2readFilters(tags)
     }
 
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = PREF_POPULAR_PERIOD
+            title = "Popular period"
+            entries = POPULAR_PERIODS.map { it.first }.toTypedArray()
+            entryValues = POPULAR_PERIODS.map { it.second }.toTypedArray()
+            summary = "%s"
+            setDefaultValue("")
+        }.also(screen::addPreference)
+    }
+
     // Inertia page JSON, embedded in <script data-page="app">.
     private inline fun <reified T> Document.parsePageData(): T {
         val script = selectFirst("script[data-page=app]")?.data()
@@ -282,6 +304,16 @@ abstract class Hentai2Read : KeiSource() {
     companion object {
         private const val MAX_TAG_PAGES = 20
         private const val MEMO_PAGE_COUNT = "pageCount"
+
+        private const val PREF_POPULAR_PERIOD = "popular_period"
+
+        // The ranking's period tabs; Yesterday is the plain /ranking.
+        private val POPULAR_PERIODS = listOf(
+            "Yesterday" to "",
+            "Last week" to "week",
+            "Last month" to "month",
+            "All time" to "all",
+        )
 
         private const val TITLE_SELECTOR = "h1#book-title"
 
