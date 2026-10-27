@@ -118,7 +118,9 @@ abstract class Hentai2Read :
         val segments = url.pathSegments.filter { it.isNotEmpty() }
         val listing = when {
             segments.firstOrNull() == "search" -> url.newBuilder().setQueryParameter("page", page.toString()).build().toString()
-            segments.size >= 2 && segments[0] in LISTING_TYPES -> listingUrl("/${segments[0]}/${segments[1]}", page)
+            // Keep the link's Type/Status/Sort segments; its /page-N gives way to the requested page.
+            segments.size >= 2 && segments[0] in LISTING_TYPES ->
+                listingUrl("/" + segments.dropLastWhile { PAGE_SEGMENT_REGEX.matches(it) }.joinToString("/"), page)
             else -> return MangasPage(listOfNotNull(getMangaByUrl(url)), false)
         }
         return client.get(listing).asJsoup().toMangasPage()
@@ -333,6 +335,7 @@ abstract class Hentai2Read :
         private const val NEXT_PAGE_SELECTOR = "nav[aria-label=Pages] a[rel=next]"
 
         private val LISTING_TYPES = setOf("category", "content", "artist", "parody", "character")
+        private val PAGE_SEGMENT_REGEX = Regex("""page-\d+""")
 
         // "Pages:\n33" saved by an earlier refresh; earlier builds also wrote "1,842" or "1.8K".
         private val PAGES_DESC_REGEX = Regex("""^Pages:\s*([0-9][0-9,]*(?:\.[0-9]+)?\s*[KkMm]?)""", RegexOption.MULTILINE)
