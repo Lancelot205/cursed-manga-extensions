@@ -14,7 +14,7 @@ internal class TypeFilter :
     QueryPartFilter(
         "Type",
         listOf(
-            "Any" to "",
+            "All" to "",
             "Original" to "original",
             "Doujinshi" to "doujinshi",
             "Image sets" to "imageset",
@@ -58,6 +58,8 @@ internal val TAG_TYPES = listOf("category", "content")
 
 internal fun hentai2readFilters(tags: List<TagDto>): FilterList {
     val filters = buildList<Filter<*>> {
+        add(Filter.Header("Search also takes artist:name, tag:name and -tag:name. Quote names with spaces: artist:\"two words\""))
+        add(Filter.Separator())
         add(TypeFilter())
         add(StatusFilter())
         add(SortFilter())
