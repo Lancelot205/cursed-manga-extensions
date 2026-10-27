@@ -29,6 +29,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -195,9 +196,10 @@ abstract class Hentai2Read : KeiSource() {
         val id = BOOK_ID_REGEX.find(path)?.groupValues?.get(1)?.toIntOrNull() ?: return null
         return try {
             val url = "$baseUrl/search".toHttpUrl().newBuilder().addQueryParameter("q", title).build()
-            client.get(url).asJsoup().parsePageDataOrNull<ListingDto>()?.props?.books?.data.orEmpty()
+            // An error page (e.g. a Cloudflare 403) has no page data, so it yields null instead of throwing.
+            client.get(url, ensureSuccess = false).asJsoup().parsePageDataOrNull<ListingDto>()?.props?.books?.data.orEmpty()
                 .firstOrNull { it.id == id }?.pageCount?.toString()
-        } catch (_: Exception) {
+        } catch (_: IOException) {
             null // a failed lookup shouldn't break the details refresh
         }
     }
