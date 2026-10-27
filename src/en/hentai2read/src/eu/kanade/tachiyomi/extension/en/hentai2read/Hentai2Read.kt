@@ -27,6 +27,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
@@ -111,15 +113,16 @@ abstract class Hentai2Read :
         }
     }
 
-    // Search and tag pages (/category/18-adult, /artist/6197-…) resolve to a listing; anything else is treated as a single manga.
+    // Search, ranking, browse and tag pages (/category/18-adult, /artist/6197-…) resolve to a listing; anything else is treated as a single manga.
     override suspend fun getMangasByUrl(url: HttpUrl, page: Int): MangasPage {
         if (url.host != baseUrl.toHttpUrl().host) return MangasPage(emptyList(), false)
 
         val segments = url.pathSegments.filter { it.isNotEmpty() }
         val listing = when {
             segments.firstOrNull() == "search" -> url.newBuilder().setQueryParameter("page", page.toString()).build().toString()
-            // Keep the link's Type/Status/Sort segments; its /page-N gives way to the requested page.
-            segments.size >= 2 && segments[0] in LISTING_TYPES ->
+            segments.firstOrNull() == "ranking" -> rankingUrl(url.queryParameter("period").orEmpty(), page)
+            // Keep the link's other segments (/browse/trending, a tag's /doujinshi/completed); its /page-N gives way to the requested page.
+            segments.firstOrNull() == "browse" || (segments.size >= 2 && segments[0] in LISTING_TYPES) ->
                 listingUrl("/" + segments.dropLastWhile { PAGE_SEGMENT_REGEX.matches(it) }.joinToString("/"), page)
             else -> return MangasPage(listOfNotNull(getMangaByUrl(url)), false)
         }
@@ -130,7 +133,7 @@ abstract class Hentai2Read :
 
     private fun Document.toMangasPage(): MangasPage {
         // The cover badge abbreviates above 1000 ("1.8K pages"), so multi-chapter totals come from the page JSON.
-        val pageCounts = parsePageDataOrNull<ListingDto>()?.props?.run { books?.data.orEmpty() + podium + grid }.orEmpty()
+        val pageCounts = parsePageDataOrNull<ListingDto>()?.books.orEmpty()
             .filter { (it.chapters ?: 0) > 1 }
             .mapNotNull { book -> book.pageCount?.let { book.id to it } }
             .toMap()
@@ -180,7 +183,8 @@ abstract class Hentai2Read :
         return SMangaUpdate(
             manga = parseMangaDetails(document, pages).apply {
                 url = manga.url
-                memo = manga.memo
+                // Saved so a later chapters-only refresh doesn't fall back to an older count from browsing.
+                memo = pages?.toIntOrNull()?.let { JsonObject(manga.memo + (MEMO_PAGE_COUNT to JsonPrimitive(it))) } ?: manga.memo
                 if (status == SManga.COMPLETED && parsedChapters.size == 1) {
                     update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
                 }
@@ -221,11 +225,11 @@ abstract class Hentai2Read :
 
     // The book id comes from the page, so entries stored under pre-redesign URLs are found too.
     private suspend fun fetchPagesFromSearch(document: Document, title: String): String? {
-        val id = document.parsePageDataOrNull<BookPageDto>()?.props?.book?.id ?: return null
+        val id = document.parsePageDataOrNull<BookPageDto>()?.id ?: return null
         return try {
             val url = "$baseUrl/search".toHttpUrl().newBuilder().addQueryParameter("q", title).build()
             // An error page (e.g. a Cloudflare 403) has no page data, so it yields null instead of throwing.
-            client.get(url, ensureSuccess = false).asJsoup().parsePageDataOrNull<ListingDto>()?.props?.books?.data.orEmpty()
+            client.get(url, ensureSuccess = false).asJsoup().parsePageDataOrNull<ListingDto>()?.books.orEmpty()
                 .firstOrNull { it.id == id }?.pageCount?.toString()
         } catch (_: IOException) {
             null // a failed lookup shouldn't break the details refresh
@@ -239,8 +243,7 @@ abstract class Hentai2Read :
             selectFirst("script[type=application/ld+json]")
                 ?.data()
                 ?.parseAs<List<JsonLdDto>>()
-                ?.firstOrNull { it.type == "Book" }
-                ?.numberOfPages
+                ?.firstNotNullOfOrNull { it.bookPages }
                 ?.toString()
         }.getOrNull()
     }

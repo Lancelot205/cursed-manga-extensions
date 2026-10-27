@@ -5,7 +5,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-class ListingDto(val props: Props) {
+class ListingDto(private val props: Props) {
     @Serializable
     class Props(
         val books: Books? = null,
@@ -19,13 +19,17 @@ class ListingDto(val props: Props) {
 
     @Serializable
     class Book(val id: Int, val pageCount: Int? = null, val chapters: Int? = null)
+
+    val books get() = props.books?.data.orEmpty() + props.podium + props.grid
 }
 
 @Serializable
 class JsonLdDto(
-    @SerialName("@type") val type: String? = null,
-    val numberOfPages: Int? = null,
-)
+    @SerialName("@type") private val type: String? = null,
+    private val numberOfPages: Int? = null,
+) {
+    val bookPages get() = numberOfPages.takeIf { type == "Book" }
+}
 
 @Serializable
 class TagPageDto(private val props: Props) {
@@ -55,12 +59,14 @@ class TagDto(
 }
 
 @Serializable
-class BookPageDto(val props: Props) {
+class BookPageDto(private val props: Props) {
     @Serializable
     class Props(val book: Book)
 
     @Serializable
     class Book(val id: Int)
+
+    val id get() = props.book.id
 }
 
 @Serializable
